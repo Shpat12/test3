@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Living Ecosystem</title>
+<style>
+html,body{margin:0;background:#05060a;color:#9fe8c8;font:12px/1.5 ui-monospace,monospace;overflow:hidden}
+canvas{display:block}
+#ui{position:fixed;top:10px;left:10px;background:#0b1018cc;border:1px solid #1d2a3a;padding:10px 12px;border-radius:8px;backdrop-filter:blur(4px)}
+#ui b{color:#fff}#graph{display:block;margin-top:6px;background:#05080d;border-radius:4px}
+button,input{margin-top:6px;font:inherit}button{background:#16314a;color:#cfe;border:1px solid #2b5373;border-radius:4px;padding:3px 10px;cursor:pointer}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <b>Living Ecosystem</b> · neuroevolution<br>
+  pop <span id="pop"></span> · max gen <span id="gen"></span> · ticks <span id="tk"></span><br>
+  food/creature-tick: <span id="fit"></span>
+  <canvas id="graph" width="220" height="60"></canvas>
+  speed <input id="spd" type="range" min="1" max="20" value="6"> <span id="sv">6x</span><br>
+  <button id="rst">reset</button> <small>click = drop food</small>
+</div>
+<script>
+const C=document.getElementById('c'),g=C.getContext('2d'),GC=document.getElementById('graph'),gg=GC.getContext('2d');
+let W,H;function rs(){W=C.width=innerWidth;H=C.height=innerHeight}rs();onresize=rs;
+const NI=4,NH=6,NO=2,NW=NI*NH+NH*NO,FOOD=130,CAP=120,R=220;
+const rnd=a=>(Math.random()*2-1)*a, gauss=()=>Math.random()+Math.random()+Math.random()-1.5;
+let cr,food,elite,tick,hist,eaten,popSum,speed=6,maxGen,lastFit=0;
+
+function mk(w,gn,x,y,e){return{x:x??Math.random()*W,y:y??Math.random()*H,a:Math.random()*6.283,e:e??70,
+  w:w||Array.from({length:NW},()=>rnd(1.5)),g:gn||0,age:0}}
+const mut=w=>w.map(v=>Math.random()<.15?v+gauss()*.6:v);
+
+function think(c,fa,fp){
+  const I=[fa,fp,c.e/100,1],Hd=[];let k=0;
+  for(let h=0;h<NH;h++){let s=0;for(let i=0;i<NI;i++)s+=I[i]*c.w[k++];Hd.push(Math.tanh(s))}
+  const O=[];for(let o=0;o<NO;o++){let s=0;for(let h=0;h<NH;h++)s+=Hd[h]*c.w[k++];O.push(Math.tanh(s))}
+  return O;
+}
+function reset(){cr=[];food=[];elite=[];tick=0;hist=[];eaten=0;popSum=0;maxGen=0;
+  for(let i=0;i<80;i++)cr.push(mk());
+  for(let i=0;i<FOOD;i++)food.push([Math.random()*W,Math.random()*H]);
+  g.fillStyle='#05060a';g.fillRect(0,0,W,H)}
+const wrap=(d,L)=>d>L/2?d-L:d<-L/2?d+L:d;
+
+function step(){
+  tick++;popSum+=cr.length;
+  const kids=[];
+  for(const c of cr){
+    // nearest food (torus)
+    let bd=1e9,bi=-1;
+    for(let i=0;i<food.length;i++){const dx=wrap(food[i][0]-c.x,W),dy=wrap(food[i][1]-c.y,H),d=dx*dx+dy*dy;if(d<bd){bd=d;bi=i}}
+    let fa=0,fp=0;
+    if(bi>=0){const d=Math.sqrt(bd);if(d<R){
+      const dx=wrap(food[bi][0]-c.x,W),dy=wrap(food[bi][1]-c.y,H);
+      let an=Math.atan2(dy,dx)-c.a;while(an>Math.PI)an-=6.283;while(an<-Math.PI)an+=6.283;
+      fa=an/Math.PI;fp=1-d/R}}
+    const [t,s]=think(c,fa,fp),sp=(s+1)*1.5;
+    c.a+=t*.3;c.x=(c.x+Math.cos(c.a)*sp+W)%W;c.y=(c.y+Math.sin(c.a)*sp+H)%H;
+    c.e-=.07+sp*.04;c.age++;
+    if(bi>=0&&bd<100){c.e+=45;eaten++;
+      if(food.length>FOOD)food.splice(bi,1);else food[bi]=[Math.random()*W,Math.random()*H]}
+    if(c.e>130&&cr.length+kids.length<CAP){c.e/=2;const k=mk(mut(c.w),c.g+1,c.x,c.y,c.e);kids.push(k);if(k.g>maxGen)maxGen=k.g}
+  }
+  cr=cr.filter(c=>{if(c.e>0)return true;
+    if(c.age>400){elite.push({w:c.w,g:c.g,age:c.age});elite.sort((a,b)=>b.age-a.age);elite.length=Math.min(elite.length,10)}
+    return false});
+  cr.push(...kids);
+  while(cr.length<25){const p=elite.length?elite[Math.floor(Math.random()*elite.length)]:null;
+    cr.push(p?mk(mut(p.w),p.g+1):mk())}
+  if(tick%300===0){lastFit=eaten/popSum*1000;hist.push(lastFit);if(hist.length>200)hist.shift();eaten=0;popSum=0}
+}
+
+function draw(){
+  g.fillStyle='rgba(5,6,10,.35)';g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='lighter';
+  g.fillStyle='#2f9';for(const f of food){g.beginPath();g.arc(f[0],f[1],2.2,0,6.283);g.fill()}
+  for(const c of cr){const h=(c.g*9)%360;g.fillStyle=`hsl(${h},90%,62%)`;
+    g.beginPath();g.arc(c.x,c.y,1.8+Math.min(c.e,130)/70,0,6.283);g.fill()}
+  g.globalCompositeOperation='source-over';
+  // graph
+  gg.clearRect(0,0,220,60);gg.strokeStyle='#5fd';gg.beginPath();
+  const mx=Math.max(1,...hist);hist.forEach((v,i)=>{const x=i*220/200,y=58-v/mx*54;i?gg.lineTo(x,y):gg.moveTo(x,y)});gg.stroke();
+  pop.textContent=cr.length;gen.textContent=maxGen;tk.textContent=tick;fit.textContent=lastFit.toFixed(1);
+}
+function loop(){for(let i=0;i<speed;i++)step();draw();requestAnimationFrame(loop)}
+spd.oninput=()=>{speed=+spd.value;sv.textContent=speed+'x'};
+rst.onclick=reset;
+C.onclick=e=>{for(let i=0;i<15;i++)food.push([e.clientX+rnd(40),e.clientY+rnd(40)])};
+speed=+spd.value;reset();loop();
+window.eco={get hist(){return hist},get maxGen(){return maxGen},get pop(){return cr.length},setSpeed:v=>{speed=v}};
+</script></body></html>
